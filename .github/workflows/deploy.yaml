@@ -16,7 +16,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.11.1' # Use a versão do seu pubspec
+          #flutter-version: '3.11.1' # Use a versão do seu pubspec
 
       - name: Install dependencies
         run: flutter pub get
