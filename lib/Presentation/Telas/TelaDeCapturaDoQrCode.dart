@@ -47,7 +47,7 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     notScanned = true;
   }
 
-  void _handleBarcode(BarcodeCapture barcodes) {
+  void _handleBarcode2(BarcodeCapture barcodes) {
     if (mounted && notScanned) {
       setState(() {
         _barcode = barcodes.barcodes.firstOrNull;
@@ -57,6 +57,29 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
       Navigator.pushNamed(context, '/TelaDeResultados');
       notScanned = false;
     }
+  }
+
+  void _handleBarcode(BarcodeCapture barcodes) {
+    if (!mounted || !notScanned) return;
+
+    // 1. Ignora capturas sem nenhum barcode
+    if (barcodes.barcodes.isEmpty) return;
+
+    final barcode = barcodes.barcodes.first;
+    final valor = barcode.displayValue;
+
+    // 2. Ignora barcodes sem valor legível
+    if (valor == null || valor.trim().isEmpty) return;
+
+    // 3. Marca ANTES de qualquer coisa assíncrona pra não disparar de novo
+    notScanned = false;
+
+    setState(() {
+      _barcode = barcode;
+    });
+
+    context.read<DocumentoProvider>().lerQrCode(barcode);
+    Navigator.pushNamed(context, '/TelaDeResultados');
   }
 
   @override
