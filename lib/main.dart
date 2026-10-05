@@ -4,12 +4,10 @@ import 'package:app_pfc_blockchain/Presentation/Telas/TelaDeCapturaDoQrCode.dart
 import 'package:app_pfc_blockchain/Presentation/Telas/TelaDeEscolhaDeEntidade.dart';
 import 'package:app_pfc_blockchain/Presentation/Telas/TelaDeResultados.dart';
 import 'package:app_pfc_blockchain/Presentation/Telas/TelaInicial.dart';
-import 'package:cryptography_flutter/cryptography_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'Data/repos/BancoRepo.dart';
 import 'Data/repos/DocumentoRepo.dart';
-import 'Data/services/utilitarios.dart';
 
 
 
