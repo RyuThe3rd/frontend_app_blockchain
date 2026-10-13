@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 class BancoProvider extends ChangeNotifier {
   final BancoRepoContract bancoRepo;
-  String? bancoCorrente;
-  List<String> bancos = [];
+  Map<String, dynamic>? bancoCorrente;
+  List<Map<String, dynamic>> bancos = [];
   bool isLoading = true;
 
   BancoProvider(this.bancoRepo) {
@@ -23,13 +23,21 @@ class BancoProvider extends ChangeNotifier {
     }
   }
 
-  void setBancoCorrente(String valor) {
+  void setBancoCorrente(Map<String, dynamic> valor) {
 
+    bancoCorrente = valor;
+    /*
     if (bancos.length == 2)
-      bancoCorrente = valor.split("-")[1];
+      bancoCorrente["name"] = valor.split("-")[1];
     else
-      bancoCorrente = valor;
+      bancoCorrente[""] = valor;
+    */
+    notifyListeners();
+  }
 
+  void notify() {
+
+    print("Notified\n bancoCorrente: $bancoCorrente");
     notifyListeners();
   }
 }

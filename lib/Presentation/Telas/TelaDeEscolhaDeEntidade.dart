@@ -36,7 +36,7 @@ class TelaDeEscolhaDeEntidadeState extends State<TelaDeEscolhaDeEntidade> {
     final listaDeBancos = bancoProvider.bancos;
 
     final listaFiltrada = listaDeBancos.where((e) {
-      return e.toLowerCase().contains(_filtro);
+      return e["name"].toLowerCase().contains(_filtro);
     }).toList();
 
     return Scaffold(
@@ -142,7 +142,7 @@ class TelaDeEscolhaDeEntidadeState extends State<TelaDeEscolhaDeEntidade> {
                         child: Icon(Icons.account_balance, size: 20),
                       ),
                       title: Text(
-                        banco,
+                        banco["name"],
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,

@@ -2,7 +2,7 @@ import "package:http/http.dart" as http;
 
 abstract interface class BancoRepoContract {
 
-  List<String> getDeListaDeBancos();
+  List<Map<String, dynamic>> getDeListaDeBancos();
   String getChavePublicaDoBanco({String? banco, String? id});
 
 

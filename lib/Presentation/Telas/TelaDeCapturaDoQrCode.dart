@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
+import '../Providers/BancoProvider.dart';
 import '../Providers/DocumentoProvider.dart';
 
 
@@ -34,8 +35,9 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     }
 
     return Text(
-      value.displayValue ?? 'No display value.',
+      "Escaneado" ?? 'No display value.',
       overflow: TextOverflow.fade,
+      textAlign: TextAlign.center,
       style: const TextStyle(color: Colors.white),
     );
   }
@@ -78,6 +80,7 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
       _barcode = barcode;
     });
 
+    context.read<BancoProvider>().notify();
     context.read<DocumentoProvider>().lerQrCode(barcode);
     Navigator.pushNamed(context, '/TelaDeResultados');
   }
@@ -105,6 +108,7 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
             alignment: Alignment.bottomCenter,
             child: Container(
               alignment: Alignment.bottomCenter,
+              width: MediaQuery.of(context).size.width,
               height: 100,
               color: const Color.fromRGBO(0, 0, 0, 0.4),
               child: Row(
@@ -112,7 +116,9 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
                 children: [
                   Column(
                     children: [
-                      Expanded(child: Center(child: _barcodePreview(_barcode))),
+                      Expanded(
+                          flex: 1,
+                          child: Center(child: _barcodePreview(_barcode))),
                       SizedBox(height: bottom),
                     ],
                   ),

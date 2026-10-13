@@ -1,73 +1,116 @@
+import 'dart:collection'; // Necessário para SplayTreeMap
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:basic_utils/basic_utils.dart' as basic_utils;
-import 'package:pointycastle/digests/sha256.dart';
-import 'package:pointycastle/ecc/api.dart';
-import 'package:pointycastle/macs/hmac.dart';
-import 'package:pointycastle/signers/ecdsa_signer.dart';
-import 'package:pointycastle/ecc/curves/secp256k1.dart';
 import 'package:app_pfc_blockchain/Domain/entidade/DocumentoDeExtratoBancario.dart';
+import 'package:pointycastle/digests/sha256.dart';
+//import 'package:web3dart/crypto.dart';
+import 'package:web3dart/web3dart.dart';
 import '../Services/clienteApiBlockchain.dart';
-import 'package:pointycastle/api.dart';
-
 
 class DocumentoRepo {
   Future<DocumentoDeExtratoBancario> processarQrCode({
     required String textoDoQrCode,
-    required String nomeDoBanco,
+    required String idDoBanco,
   }) async {
     bool assinaturaValida = false;
     bool extratoConstaNoBlockchain = false;
 
     try {
-      // 1. Busca a chave pública bruta do banco no mock (Base64/Hex do Ponto SEC1)
-      final chavePublicaBase64 =
-      await ClienteApiBlockchainMock.getChavePublicaDoBanco(nomeDoBanco);
+      // 1. Busca a operationalKey oficial do banco na blockchain (Endereço Hex ex: 0xaa70...)
+      final String operationalKeyHex =
+      await ClienteApiBlockchain().getChavePublicaDoBanco(idDoBanco);
 
-      // 2. Decodifica Base64 -> Bytes (Deve ser o Ponto Bruto)
-      final publicKeyBytes = base64Decode(chavePublicaBase64);
+      // 2. Parseia o JSON bruto lido do QR Code
+      final payloadOriginal = jsonDecode(textoDoQrCode) as Map<String, dynamic>;
 
-      // 3. Parseia o JSON do QR code
-      final payload = jsonDecode(textoDoQrCode) as Map<String, dynamic>;
-      final assinaturaHex = payload.remove('assinaturaBanco') as String;
+      // Remove a assinatura para reconstruir a mensagem original
+      final assinaturaHex = payloadOriginal.remove('assinaturaBanco') as String;
 
-      // 4. Re-encoda o payload SEM assinatura (JSON UTF-8)
-      final mensagem = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
+      // 3. CANONIZAÇÃO: Ordena as chaves alfabeticamente via SplayTreeMap (RFC 8785)
+      final sortedPayload = SplayTreeMap<String, dynamic>.from(payloadOriginal);
+      final String jsonCanonico = jsonEncode(sortedPayload);
 
-      // 5. Converte a assinatura Hex -> Bytes (Estritamente RAW 64 bytes)
+      print("JSON Canónico reconstruído no Flutter: $jsonCanonico");
+
+      // 4. Calcula o Hash SHA-256 da mensagem canonizada (32 bytes)
+      final mensagemBytes = Uint8List.fromList(utf8.encode(jsonCanonico));
+      final hashBytes = SHA256Digest().process(mensagemBytes);
+      final documentHashHex = '0x${bytesToHex(hashBytes)}';
+
+      // 5. Prepara a Assinatura ECDSA (65 bytes: R[32] || S[32] || V[1])
       final assinaturaBytes = hexToBytes(assinaturaHex);
 
-      // 6. Verifica a Assinatura Criptográfica na curva secp256k1 com Hardening
-      assinaturaValida = verificarAssinaturaSecp256k1(
-        publicKeyBytes: publicKeyBytes,
-        dadosOriginalBytes: mensagem,
-        assinaturaBytes: assinaturaBytes,
-      );
+      if (assinaturaBytes.length == 65) {
+        final r = BigInt.parse(bytesToHex(assinaturaBytes.sublist(0, 32)), radix: 16);
+        final s = BigInt.parse(bytesToHex(assinaturaBytes.sublist(32, 64)), radix: 16);
+        int v = assinaturaBytes[64];
 
-      // 7. Hash SHA-256 do payload para consulta na Blockchain
-      final hashBytes = SHA256Digest().process(mensagem);
-      final hashDoPayload = bytesToHex(hashBytes);
+        // Normalização de 'v' para o padrão Web3 (27 ou 28)
+        if (v < 27) v += 27;
 
+        final msgSig = MsgSignature(r, s, v);
+
+        // --- TENTATIVAS DE RECUPERAÇÃO DO ENDEREÇO ---
+        final candidatos = <String, Uint8List>{};
+
+        // Opção A: Hash SHA-256 direto dos 32 bytes
+        candidatos['SHA-256 Direto'] = hashBytes;
+
+        // Opção B: Prefixo Ethereum (\x19Ethereum Signed Message:\n32 + hashBytes) + Keccak256
+        final prefix32 = utf8.encode("\x19Ethereum Signed Message:\n32");
+        candidatos['Prefixo Eth (32 bytes)'] = keccak256(
+          Uint8List.fromList([...prefix32, ...hashBytes]),
+        );
+
+        // Opção C: Prefixo Ethereum aplicado sobre a String Hex (0x...)
+        final docStringBytes = utf8.encode(documentHashHex);
+        final prefix66 = utf8.encode("\x19Ethereum Signed Message:\n${documentHashHex.length}");
+        candidatos['Prefixo Eth (String Hex)'] = keccak256(
+          Uint8List.fromList([...prefix66, ...docStringBytes]),
+        );
+
+        // Avalia qual variação reconstrói a operationalKeyHex oficial
+        for (final entry in candidatos.entries) {
+          try {
+            final pubKey = ecRecover(entry.value, msgSig);
+            final addrHex = '0x${bytesToHex(publicKeyToAddress(pubKey))}';
+
+            print("Testando ${entry.key} -> Endereço Derivado: $addrHex");
+
+            if (addrHex.toLowerCase() == operationalKeyHex.toLowerCase()) {
+              print("Assinatura Válida! Método identificado: ${entry.key}");
+              assinaturaValida = true;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 6. Consulta a prova de existência na Blockchain Besu
       if (assinaturaValida) {
-        extratoConstaNoBlockchain = await ClienteApiBlockchainMock
-            .extratoConstaNoBlockchain(hashDoPayload);
+        extratoConstaNoBlockchain = await ClienteApiBlockchain()
+            .extratoConstaNoBlockchain(documentHashHex);
       }
 
       if (!assinaturaValida) {
-        return DocumentoDeExtratoBancario(payload)
+        return DocumentoDeExtratoBancario(sortedPayload)
           ..isDocumentoVeridico = false
-          ..mensagemDeErro = 'A assinatura digital deste extrato é inválida.';
+          ..mensagemDeErro =
+              'A assinatura digital deste extrato não pertence ao banco $idDoBanco.';
       }
 
       if (!extratoConstaNoBlockchain) {
-        return DocumentoDeExtratoBancario(payload)
+        return DocumentoDeExtratoBancario(sortedPayload)
           ..isDocumentoVeridico = false
-          ..mensagemDeErro = 'O extrato não consta ou foi revogado na Blockchain.';
+          ..mensagemDeErro =
+              'O extrato possui assinatura válida, mas não consta na Blockchain Besu.';
       }
 
-      return DocumentoDeExtratoBancario(payload)
+      print("Documento verificado com sucesso!");
+      return DocumentoDeExtratoBancario(sortedPayload)
         ..isDocumentoVeridico = true;
+
     } catch (e, st) {
       print('ERRO em processarQrCode: $e');
       print(st);
@@ -78,70 +121,7 @@ class DocumentoRepo {
   }
 }
 
-/// Valida uma assinatura ECDSA secp256k1 com validação estrita de Ponto Bruto (Hardening)
-bool verificarAssinaturaSecp256k1({
-  required Uint8List publicKeyBytes, // Estritamente Ponto Bruto SEC1 (64, 65 ou 33 bytes)
-  required Uint8List dadosOriginalBytes,
-  required Uint8List assinaturaBytes, // Estritamente RAW (64 bytes: R || S)
-}) {
-  final domainParams = ECCurve_secp256k1();
-  Uint8List sec1Bytes;
-
-  // HARDENING 1: Rejeição de cabeçalhos ASN.1/DER (Chaves que começam com a tag ASN.1 0x30)
-  if (publicKeyBytes.isNotEmpty && publicKeyBytes[0] == 0x30) {
-    throw SecurityException(
-      "Violacao de Hardening: Envolucros ASN.1/DER sao rejeitados. Apenas o ponto bruto SEC1 e aceite.",
-    );
-  }
-
-  // Normalização do Ponto Bruto Não-Comprimido
-  if (publicKeyBytes.length == 64) {
-    // Se forem passadas apenas as coordenadas X||Y (64 bytes), adiciona o prefixo 0x04
-    sec1Bytes = Uint8List(65)
-      ..[0] = 0x04
-      ..setRange(1, 65, publicKeyBytes);
-  } else if (publicKeyBytes.length == 65 || publicKeyBytes.length == 33) {
-    sec1Bytes = publicKeyBytes;
-  } else {
-    throw FormatException(
-      "Tamanho invalido de Chave Publica (${publicKeyBytes.length} bytes). Esperado ponto bruto SEC1 de 33, 64 ou 65 bytes.",
-    );
-  }
-
-  // Descodificação direta do ponto geométrico na curva secp256k1
-  final pointQ = domainParams.curve.decodePoint(sec1Bytes);
-
-  // HARDENING: Verifica se o ponto foi descodificado e não é o ponto no infinito
-  if (pointQ == null || pointQ.isInfinity) {
-    throw FormatException("O ponto fornecido nao pertence a curva secp256k1 ou e o ponto no infinito.");
-  }
-
-  final publicKey = ECPublicKey(pointQ, domainParams);
-
-  // Instancia o verificador ECDSA (SHA-256 + secp256k1)
-  final signer = ECDSASigner(SHA256Digest(), HMac(SHA256Digest(), 64));
-  signer.init(false, PublicKeyParameter<ECPublicKey>(publicKey));
-
-  // HARDENING 2: Validação estrita do formato da assinatura (RAW 64 bytes: R || S)
-  if (assinaturaBytes.length != 64) {
-    throw FormatException(
-      "Violacao de Hardening: A assinatura deve conter estritamente 64 bytes (RAW R||S). Formato recebido com ${assinaturaBytes.length} bytes.",
-    );
-  }
-
-  final rBytes = assinaturaBytes.sublist(0, 32);
-  final sBytes = assinaturaBytes.sublist(32, 64);
-  final r = BigInt.parse(bytesToHex(rBytes), radix: 16);
-  final s = BigInt.parse(bytesToHex(sBytes), radix: 16);
-
-  final ecSignature = ECSignature(r, s);
-
-  return signer.verifySignature(dadosOriginalBytes, ecSignature);
-}
-
-String bytesToHex(List<int> bytes) =>
-    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
+/// Converte String Hexadecimal para Uint8List
 Uint8List hexToBytes(String hexString) {
   var clean = hexString.startsWith('0x') ? hexString.substring(2) : hexString;
   if (clean.length.isOdd) clean = '0$clean';
@@ -151,6 +131,10 @@ Uint8List hexToBytes(String hexString) {
   ));
 }
 
+/// Converte Uint8List para String Hexadecimal
+String bytesToHex(List<int> bytes) =>
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
 class DocumentoException implements Exception {
   final String? message;
   DocumentoException(this.message);
@@ -158,12 +142,3 @@ class DocumentoException implements Exception {
   @override
   String toString() => message ?? super.toString();
 }
-
-class SecurityException implements Exception {
-  final String message;
-  SecurityException(this.message);
-
-  @override
-  String toString() => message;
-}
-

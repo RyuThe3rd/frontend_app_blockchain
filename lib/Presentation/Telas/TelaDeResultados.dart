@@ -70,7 +70,7 @@ class TelaDeResultadosState extends State<TelaDeResultados> {
       return const Center(child: Text("Nenhum resultado encontrado."));
     }
 
-    final isVeridico = doc.isDocumentoVeridico ?? false;
+    bool isVeridico = doc.isDocumentoVeridico ?? false;
     final dados = doc.dados;
     final tempo = DateTime.tryParse(dados['issuedAt']);
     if(tempo is DateTime) {
@@ -188,11 +188,15 @@ class TelaDeResultadosState extends State<TelaDeResultados> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.read<DocumentoProvider>();
+    final provider = context.watch<DocumentoProvider>();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text("Resultado do Documento"),
+        titleTextStyle: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
         backgroundColor: Colors.blue[700],
         foregroundColor: Colors.white,
         centerTitle: true,
