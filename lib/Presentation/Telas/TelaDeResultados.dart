@@ -194,6 +194,7 @@ class TelaDeResultadosState extends State<TelaDeResultados> {
       appBar: AppBar(
         title: const Text("Resultado do Documento"),
         titleTextStyle: TextStyle(
+          color: Colors.white,
           fontSize: 22,
           fontWeight: FontWeight.bold,
         ),

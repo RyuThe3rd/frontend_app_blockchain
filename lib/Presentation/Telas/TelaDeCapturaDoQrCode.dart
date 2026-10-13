@@ -35,10 +35,12 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     }
 
     return Text(
-      "Escaneado" ?? 'No display value.',
+      "Escaneado..." ?? 'No display value.',
       overflow: TextOverflow.fade,
       textAlign: TextAlign.center,
-      style: const TextStyle(color: Colors.white),
+      style: const TextStyle(
+          fontSize: 20,
+          color: Colors.white),
     );
   }
 
