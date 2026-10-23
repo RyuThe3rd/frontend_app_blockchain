@@ -38,7 +38,25 @@ class DocumentoRepo {
       final hashBytes = SHA256Digest().process(mensagemBytes);
       final documentHashHex = '0x${bytesToHex(hashBytes)}';
 
-      // 5. Prepara a Assinatura ECDSA (65 bytes: R[32] || S[32] || V[1])
+
+      // 5. NOVO: Vai à Blockchain buscar o registo do documento e o status do banco
+      final Map<String, dynamic> registoBlockchain = await ClienteApiBlockchain().getStatementRecord(documentHashHex);
+      final Map<String, dynamic> statusBanco = await ClienteApiBlockchain().getStatusDoBanco(idDoBanco);
+
+      final bool extratoConstaNoBlockchain = registoBlockchain['exists'] ?? false;
+      final bool bancoEstaActivo = statusBanco['isActive'] ?? false;
+
+      // 6. Determinar qual é a chave que DEVERIA ter assinado este documento
+      // Se já existe na blockchain, é a chave que lá está (histórica).
+      // Se não existe, assumimos que é a chave atual do banco.
+      String chaveEsperadaHex;
+      if (extratoConstaNoBlockchain) {
+        chaveEsperadaHex = registoBlockchain['chaveOperacional'];
+      } else {
+        chaveEsperadaHex = await ClienteApiBlockchain().getChavePublicaDoBanco(idDoBanco); // fallback para a atual
+      }
+
+      // 7. Prepara a Assinatura ECDSA (65 bytes: R[32] || S[32] || V[1])
       final assinaturaBytes = hexToBytes(assinaturaHex);
 
       if (assinaturaBytes.length == 65) {
@@ -87,12 +105,7 @@ class DocumentoRepo {
         }
       }
 
-      // 6. Consulta a prova de existência na Blockchain Besu
-      if (assinaturaValida) {
-        extratoConstaNoBlockchain = await ClienteApiBlockchain()
-            .extratoConstaNoBlockchain(documentHashHex);
-      }
-
+      // 8. TESTE A e B: Se a assinatura falhar contra a chave esperada, é fraude ou adulteração
       if (!assinaturaValida) {
         return DocumentoDeExtratoBancario(sortedPayload)
           ..isDocumentoVeridico = false
@@ -100,11 +113,33 @@ class DocumentoRepo {
               'A assinatura digital deste extrato não pertence ao banco $idDoBanco.';
       }
 
+      // 9. TESTE: Se a assinatura é válida mas o documento não está na blockchain
       if (!extratoConstaNoBlockchain) {
         return DocumentoDeExtratoBancario(sortedPayload)
           ..isDocumentoVeridico = false
-          ..mensagemDeErro =
-              'O extrato possui assinatura válida, mas não consta na Blockchain Besu.';
+          ..mensagemDeErro = 'O extrato possui assinatura válida, mas não consta na Blockchain Besu.';
+      }
+
+      // ==========================================
+      // TESTE D: A chave era válida no momento da emissão?
+      // ==========================================
+      // Como agora usámos a chave que está no registo, esta validação confirma matematicamente.
+      final timestampDoRegisto = registoBlockchain['timestamp'];
+      final chaveEraValida = await ClienteApiBlockchain().validateHistoricalKey(chaveEsperadaHex, timestampDoRegisto);
+
+      if (!chaveEraValida) {
+        return DocumentoDeExtratoBancario(sortedPayload)
+          ..isDocumentoVeridico = false
+          ..mensagemDeErro = 'A chave usada já não era válida na data de emissão.';
+      }
+
+      // ==========================================
+      // TESTE C: O BANCO FOI REVOGADO?
+      // ==========================================
+      if (!bancoEstaActivo) {
+        return DocumentoDeExtratoBancario(sortedPayload)
+          ..isDocumentoVeridico = false
+          ..mensagemDeErro = 'Documento autêntico, MAS o banco $idDoBanco encontra-se REVOGADO pelo regulador.';
       }
 
       print("Documento verificado com sucesso!");

@@ -90,6 +90,56 @@ class ClienteApiBlockchain implements ClienteApiBlockchainContract{
 
   }
 
+ Future<Map<String, dynamic>> getStatementRecord(String documentHashHex) async {
+   try {
+     // Assumindo que o teu Controller de Documentos tem este endpoint
+     String endpoint = "/api/v1/documents/verify/$documentHashHex";
+     http.Response response = await http.get(Uri.parse("$apiUrl$endpoint"));
+
+     if (response.statusCode != 200) {
+       throw ClienteApiBlockchainException("Erro ao verificar documento: ${response.statusCode}");
+     }
+
+     return jsonDecode(response.body) as Map<String, dynamic>;
+   } catch (e) {
+     throw ClienteApiBlockchainException(e.toString());
+   }
+ }
+
+ Future<Map<String, dynamic>> getStatusDoBanco(String idDoBanco) async {
+   try {
+     // O endpoint que criaste no Controller de Bancos
+     String endpoint = "/api/v1/banks/$idDoBanco/status";
+     http.Response response = await http.get(Uri.parse("$apiUrl$endpoint"));
+
+     if (response.statusCode != 200) {
+       throw ClienteApiBlockchainException("Erro ao buscar status do banco: ${response.statusCode}");
+     }
+
+     return jsonDecode(response.body) as Map<String, dynamic>;
+   } catch (e) {
+     throw ClienteApiBlockchainException(e.toString());
+   }
+ }
+
+ Future<bool> validateHistoricalKey(String chaveEsperadaHex, dynamic timestampDoRegisto) async {
+   try {
+     // O endpoint que criaste no Controller de Bancos
+     String endpoint = "/api/v1/banks/validate-historical?key=$chaveEsperadaHex&timestamp=${timestampDoRegisto.toString()}";
+     http.Response response = await http.get(Uri.parse("$apiUrl$endpoint"));
+
+     if (response.statusCode != 200) {
+       throw ClienteApiBlockchainException("Erro ao validar chave histórica: ${response.statusCode}");
+     }
+
+     final mapa = jsonDecode(response.body);
+     return mapa['isValid'] == true;
+   } catch (e) {
+     throw ClienteApiBlockchainException(e.toString());
+   }
+ }
+
+
 
 }
 
