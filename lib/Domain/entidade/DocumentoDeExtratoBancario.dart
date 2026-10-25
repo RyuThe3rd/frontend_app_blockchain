@@ -2,6 +2,7 @@
 class DocumentoDeExtratoBancario{
   Map<String, dynamic> dados;
   bool? isDocumentoVeridico = null;
+  bool autenticidadeEmRevisao = false;
   String? banco;
   String? mensagemDeErro = "Documento invalido!";
   String? mensagemDeErro2 = "Um dos campos abaixo não contém informação verídica:";

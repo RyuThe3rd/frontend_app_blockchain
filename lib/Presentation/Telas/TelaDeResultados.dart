@@ -71,6 +71,10 @@ class TelaDeResultadosState extends State<TelaDeResultados> {
     }
 
     bool isVeridico = doc.isDocumentoVeridico ?? false;
+    final emRevisao = doc.autenticidadeEmRevisao;
+
+
+
     final dados = doc.dados;
     final tempo = DateTime.tryParse(dados['issuedAt']);
     if(tempo is DateTime) {
@@ -86,8 +90,15 @@ class TelaDeResultadosState extends State<TelaDeResultados> {
 
 
 
-    final corStatus = isVeridico ? Colors.green : Colors.red;
-    final iconoStatus = isVeridico ? Icons.check_circle : Icons.cancel;
+    //final corStatus = isVeridico ? Colors.green : Colors.red;
+    final corStatus = emRevisao
+        ? Colors.orange.shade800
+        : (isVeridico ? Colors.green : Colors.red);
+   // final iconoStatus = isVeridico ? Icons.check_circle : Icons.cancel;
+    final iconoStatus = emRevisao
+        ? Icons.warning_amber_rounded
+        : (isVeridico ? Icons.check_circle : Icons.cancel);
+
     final titulo = isVeridico ? doc.mensagemDeSucesso : doc.mensagemDeErro;
     final subtitulo = isVeridico ? doc.mensagemDeSucesso2 : doc.mensagemDeErro2;
 

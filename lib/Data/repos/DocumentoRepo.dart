@@ -13,144 +13,148 @@ class DocumentoRepo {
     required String textoDoQrCode,
     required String idDoBanco,
   }) async {
-    bool assinaturaValida = false;
-    bool extratoConstaNoBlockchain = false;
-
     try {
-      // 1. Busca a operationalKey oficial do banco na blockchain (Endereço Hex ex: 0xaa70...)
-      final String operationalKeyHex =
-      await ClienteApiBlockchain().getChavePublicaDoBanco(idDoBanco);
-
-      // 2. Parseia o JSON bruto lido do QR Code
-      final payloadOriginal = jsonDecode(textoDoQrCode) as Map<String, dynamic>;
-
-      // Remove a assinatura para reconstruir a mensagem original
+      // Reconstruir o payload e o hash do documento (sem assinaturaBanco).
+      final payloadOriginal =
+      Map<String, dynamic>.from(jsonDecode(textoDoQrCode) as Map);
       final assinaturaHex = payloadOriginal.remove('assinaturaBanco') as String;
-
-      // 3. CANONIZAÇÃO: Ordena as chaves alfabeticamente via SplayTreeMap (RFC 8785)
       final sortedPayload = SplayTreeMap<String, dynamic>.from(payloadOriginal);
-      final String jsonCanonico = jsonEncode(sortedPayload);
-
-      print("JSON Canónico reconstruído no Flutter: $jsonCanonico");
-
-      // 4. Calcula o Hash SHA-256 da mensagem canonizada (32 bytes)
-      final mensagemBytes = Uint8List.fromList(utf8.encode(jsonCanonico));
-      final hashBytes = SHA256Digest().process(mensagemBytes);
+      final jsonCanonico = jsonEncode(sortedPayload);
+      final hashBytes = SHA256Digest().process(
+        Uint8List.fromList(utf8.encode(jsonCanonico)),
+      );
       final documentHashHex = '0x${bytesToHex(hashBytes)}';
 
-
-      // 5. NOVO: Vai à Blockchain buscar o registo do documento e o status do banco
-      final Map<String, dynamic> registoBlockchain = await ClienteApiBlockchain().getStatementRecord(documentHashHex);
-      final Map<String, dynamic> statusBanco = await ClienteApiBlockchain().getStatusDoBanco(idDoBanco);
-
-      final bool extratoConstaNoBlockchain = registoBlockchain['exists'] ?? false;
-      final bool bancoEstaActivo = statusBanco['isActive'] ?? false;
-
-      // 6. Determinar qual é a chave que DEVERIA ter assinado este documento
-      // Se já existe na blockchain, é a chave que lá está (histórica).
-      // Se não existe, assumimos que é a chave atual do banco.
-      String chaveEsperadaHex;
-      if (extratoConstaNoBlockchain) {
-        chaveEsperadaHex = registoBlockchain['chaveOperacional'];
-      } else {
-        chaveEsperadaHex = await ClienteApiBlockchain().getChavePublicaDoBanco(idDoBanco); // fallback para a atual
+      // Mensagens destinadas ao utilizador, sem detalhes técnicos.
+      DocumentoDeExtratoBancario recusar(
+          String mensagem, {
+            String titulo = 'Extrato inválido.',
+          }) {
+        return DocumentoDeExtratoBancario(sortedPayload)
+          ..isDocumentoVeridico = false
+          ..mensagemDeErro = titulo
+          ..mensagemDeErro2 = mensagem;
       }
 
-      // 7. Prepara a Assinatura ECDSA (65 bytes: R[32] || S[32] || V[1])
+      // Uma chamada REST: a API consulta StatementRegistry e BankRegistry
+      // numa so eth_call, atraves de verifyStatementWithStatus.
+      final registoBlockchain =
+      await ClienteApiBlockchain().getStatementRecord(documentHashHex);
+      final existe = registoBlockchain['exists'] == true;
+      if (!existe) {
+        return recusar(
+          'Não encontrámos um registo que confirme a existência deste extracto. '
+              'Solicite ao banco emissor que confirme a sua autenticidade.',
+        );
+      }
+
+      // Nunca usar a chave operacional actual para verificar extractos historicos.
+      final chaveEsperadaHex = registoBlockchain['chaveOperacional'] as String;
+      final bankIdRegisto = registoBlockchain['bankId'].toString();
+      if (bankIdRegisto != idDoBanco.trim()) {
+        return recusar(
+          'O banco selecionado não corresponde ao banco associado a este extracto. '
+              'Confirme se a informação abaixo bate com o papel físico.',
+        );
+      }
+
+      // A API informa a validade temporal e incidentes, mas nao confirma
+      // a assinatura ECDSA contida no QR. Fazemos isso localmente.
       final assinaturaBytes = hexToBytes(assinaturaHex);
-
+      bool assinaturaValida = false;
       if (assinaturaBytes.length == 65) {
-        final r = BigInt.parse(bytesToHex(assinaturaBytes.sublist(0, 32)), radix: 16);
-        final s = BigInt.parse(bytesToHex(assinaturaBytes.sublist(32, 64)), radix: 16);
+        final r = BigInt.parse(
+            bytesToHex(assinaturaBytes.sublist(0, 32)), radix: 16);
+        final s = BigInt.parse(
+            bytesToHex(assinaturaBytes.sublist(32, 64)), radix: 16);
         int v = assinaturaBytes[64];
-
-        // Normalização de 'v' para o padrão Web3 (27 ou 28)
         if (v < 27) v += 27;
-
         final msgSig = MsgSignature(r, s, v);
 
-        // --- TENTATIVAS DE RECUPERAÇÃO DO ENDEREÇO ---
-        final candidatos = <String, Uint8List>{};
+        // Compatibilidade temporaria com as variantes do assinador actual.
+        // No protocolo definitivo deve existir UM unico esquema de assinatura.
+        final candidatos = <Uint8List>[
+          hashBytes,
+          keccak256(Uint8List.fromList([
+            ...utf8.encode('\x19Ethereum Signed Message:\n32'),
+            ...hashBytes,
+          ])),
+          keccak256(Uint8List.fromList([
+            ...utf8.encode(
+                '\x19Ethereum Signed Message:\n${documentHashHex.length}'),
+            ...utf8.encode(documentHashHex),
+          ])),
+        ];
 
-        // Opção A: Hash SHA-256 direto dos 32 bytes
-        candidatos['SHA-256 Direto'] = hashBytes;
-
-        // Opção B: Prefixo Ethereum (\x19Ethereum Signed Message:\n32 + hashBytes) + Keccak256
-        final prefix32 = utf8.encode("\x19Ethereum Signed Message:\n32");
-        candidatos['Prefixo Eth (32 bytes)'] = keccak256(
-          Uint8List.fromList([...prefix32, ...hashBytes]),
-        );
-
-        // Opção C: Prefixo Ethereum aplicado sobre a String Hex (0x...)
-        final docStringBytes = utf8.encode(documentHashHex);
-        final prefix66 = utf8.encode("\x19Ethereum Signed Message:\n${documentHashHex.length}");
-        candidatos['Prefixo Eth (String Hex)'] = keccak256(
-          Uint8List.fromList([...prefix66, ...docStringBytes]),
-        );
-
-        // Avalia qual variação reconstrói a operationalKeyHex oficial
-        for (final entry in candidatos.entries) {
+        for (final digesto in candidatos) {
           try {
-            final pubKey = ecRecover(entry.value, msgSig);
+            final pubKey = ecRecover(digesto, msgSig);
             final addrHex = '0x${bytesToHex(publicKeyToAddress(pubKey))}';
-
-            print("Testando ${entry.key} -> Endereço Derivado: $addrHex");
-
-            if (addrHex.toLowerCase() == operationalKeyHex.toLowerCase()) {
-              print("Assinatura Válida! Método identificado: ${entry.key}");
+            if (addrHex.toLowerCase() == chaveEsperadaHex.toLowerCase()) {
               assinaturaValida = true;
               break;
             }
-          } catch (_) {}
+          } catch (_) {
+            // O digesto alternativo nao corresponde ao formato da assinatura.
+          }
         }
       }
 
-      // 8. TESTE A e B: Se a assinatura falhar contra a chave esperada, é fraude ou adulteração
       if (!assinaturaValida) {
-        return DocumentoDeExtratoBancario(sortedPayload)
-          ..isDocumentoVeridico = false
-          ..mensagemDeErro =
-              'A assinatura digital deste extrato não pertence ao banco $idDoBanco.';
+        return recusar(
+          'Não foi possível confirmar a assinatura digital deste extracto. '
+              'O documento pode ter sido alterado ou não ter sido emitido pelo banco indicado.',
+          titulo: 'Extrato inválido.',
+        );
       }
 
-      // 9. TESTE: Se a assinatura é válida mas o documento não está na blockchain
-      if (!extratoConstaNoBlockchain) {
-        return DocumentoDeExtratoBancario(sortedPayload)
-          ..isDocumentoVeridico = false
-          ..mensagemDeErro = 'O extrato possui assinatura válida, mas não consta na Blockchain Besu.';
+      if (registoBlockchain['historicalKeyValid'] != true) {
+        return recusar(
+          'A chave utilizada não estava autorizada quando este extracto foi registado. '
+              'Peça uma confirmação ao banco emissor.',
+          titulo: 'Extrato inválido.',
+        );
       }
 
-      // ==========================================
-      // TESTE D: A chave era válida no momento da emissão?
-      // ==========================================
-      // Como agora usámos a chave que está no registo, esta validação confirma matematicamente.
-      final timestampDoRegisto = registoBlockchain['timestamp'];
-      final chaveEraValida = await ClienteApiBlockchain().validateHistoricalKey(chaveEsperadaHex, timestampDoRegisto);
-
-      if (!chaveEraValida) {
+      if (registoBlockchain['affectedByCompromise'] == true) {
+        // Um incidente não demonstra, por si só, que o extracto seja falso.
+        // A interface apresenta este resultado como aviso, não como erro.
         return DocumentoDeExtratoBancario(sortedPayload)
           ..isDocumentoVeridico = false
-          ..mensagemDeErro = 'A chave usada já não era válida na data de emissão.';
+          ..autenticidadeEmRevisao = true
+          ..mensagemDeErro = 'Autenticidade em revisão'
+          ..mensagemDeErro2 =
+              'Foi comunicado um incidente de segurança relacionado com o processo de geração'
+              'utilizado neste extracto. Não é possível confirmar a sua autenticidade '
+              'neste momento. Solicite uma confirmação ao banco emissor.';
       }
 
-      // ==========================================
-      // TESTE C: O BANCO FOI REVOGADO?
-      // ==========================================
-      if (!bancoEstaActivo) {
-        return DocumentoDeExtratoBancario(sortedPayload)
-          ..isDocumentoVeridico = false
-          ..mensagemDeErro = 'Documento autêntico, MAS o banco $idDoBanco encontra-se REVOGADO pelo regulador.';
+      if (registoBlockchain['status'] != 'ANCHOR_VALID') {
+        return recusar(
+          'Não foi possível concluir todas as verificações necessárias. '
+              'Tente novamente mais tarde ou contacte o banco emissor.',
+          titulo: 'Extrato inválido.',
+        );
       }
 
-      print("Documento verificado com sucesso!");
+      // A verificacao criptografica nao compara automaticamente
+      // o conteudo visivel no papel com os dados autenticados no QR.
       return DocumentoDeExtratoBancario(sortedPayload)
         ..isDocumentoVeridico = true;
 
     } catch (e, st) {
       print('ERRO em processarQrCode: $e');
       print(st);
+      if (e is DocumentoException) rethrow;
+      if (e is FormatException) {
+        throw DocumentoException(
+          'O código QR não contém dados de verificação válidos. '
+              'Confirme que está a ler o código do extracto e tente novamente.',
+        );
+      }
       throw DocumentoException(
-        'Houve um erro ao processar o QR Code:\n$e',
+        'Não foi possível verificar o extracto neste momento. '
+            'Verifique a ligação à Internet e tente novamente.',
       );
     }
   }

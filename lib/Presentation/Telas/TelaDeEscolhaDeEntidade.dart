@@ -22,6 +22,7 @@ class TelaDeEscolhaDeEntidadeState extends State<TelaDeEscolhaDeEntidade> {
         _filtro = _searchController.text.toLowerCase();
       });
     });
+    context.read<BancoProvider>().bancoRepo.atualizarInternamenteListaDeBancos();
   }
 
   @override
