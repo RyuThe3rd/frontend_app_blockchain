@@ -83,6 +83,7 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
 
     notScanned = false;
 
+    Navigator.pop(context);
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
