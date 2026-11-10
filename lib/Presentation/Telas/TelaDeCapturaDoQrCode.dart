@@ -64,7 +64,7 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     }
   }
 
-  void _handleBarcode(BarcodeCapture capture) {
+  void _handleBarcode3(BarcodeCapture capture) {
     if (!mounted || !notScanned || capture.barcodes.isEmpty) return;
 
     final barcode = capture.barcodes.first;
@@ -107,7 +107,7 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     );
   }
 
-  void _handleBarcode1(BarcodeCapture barcodes) {
+  void _handleBarcode(BarcodeCapture barcodes) {
     if (!mounted || !notScanned) return;
 
     // 1. Ignora capturas sem nenhum barcode
@@ -116,23 +116,6 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     final barcode = barcodes.barcodes.first;
     final valor = barcode.displayValue;
 
-    final expected = Uint8List.fromList([
-      0xA1, 0x65, 0x73, 0x61, 0x6C,
-      0x64, 0x6F, 0x18, 0x64,
-    ]);
-
-    print('String: ${barcode.rawValue}');
-    print('Bytes: ${barcode.rawDecodedBytes}');
-    print('Tipo: ${barcode.rawDecodedBytes.runtimeType}');
-
-    final decoded = barcode.rawDecodedBytes;
-
-    if (decoded is DecodedBarcodeBytes) {
-      debugPrint(
-        'CBOR recuperado correctamente? '
-            '${listEquals(decoded.bytes, expected)}',
-      );
-    }
     // 2. Ignora barcodes sem valor legível
     if (valor == null || valor.trim().isEmpty) return;
 
