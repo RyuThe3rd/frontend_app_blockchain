@@ -23,6 +23,11 @@ class BancoProvider extends ChangeNotifier {
     }
   }
 
+  void atulizarListaDeBancos(){
+    bancos = bancoRepo.getDeListaDeBancos();
+    notifyListeners();
+  }
+
   void setBancoCorrente(Map<String, dynamic> valor) {
 
     bancoCorrente = valor;

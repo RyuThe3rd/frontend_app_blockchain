@@ -1,5 +1,6 @@
 import 'dart:io';
-
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
@@ -63,7 +64,49 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     }
   }
 
-  void _handleBarcode(BarcodeCapture barcodes) {
+  void _handleBarcode(BarcodeCapture capture) {
+    if (!mounted || !notScanned || capture.barcodes.isEmpty) return;
+
+    final barcode = capture.barcodes.first;
+    final decoded = barcode.rawDecodedBytes;
+
+    final expected = Uint8List.fromList([
+      0xA1, 0x65, 0x73, 0x61, 0x6C,
+      0x64, 0x6F, 0x18, 0x64,
+    ]);
+
+    final Uint8List? bytes =
+    decoded is DecodedBarcodeBytes ? decoded.bytes : null;
+
+    final bool iguais =
+        bytes != null && listEquals(bytes, expected);
+
+    notScanned = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Teste de QR binário'),
+        content: SelectableText(
+          'String: ${barcode.rawValue}\n'
+              'Tipo: ${decoded.runtimeType}\n'
+              'Bytes recebidos: ${bytes?.length ?? "indisponíveis"}\n'
+              'CBOR recuperado correctamente? $iguais',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              setState(() => notScanned = true);
+            },
+            child: const Text('Testar novamente'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleBarcode1(BarcodeCapture barcodes) {
     if (!mounted || !notScanned) return;
 
     // 1. Ignora capturas sem nenhum barcode
@@ -72,6 +115,23 @@ class _TelaDeCapturaDoQrCodeState extends State<TelaDeCapturaDoQrCode> {
     final barcode = barcodes.barcodes.first;
     final valor = barcode.displayValue;
 
+    final expected = Uint8List.fromList([
+      0xA1, 0x65, 0x73, 0x61, 0x6C,
+      0x64, 0x6F, 0x18, 0x64,
+    ]);
+
+    print('String: ${barcode.rawValue}');
+    print('Bytes: ${barcode.rawDecodedBytes}');
+    print('Tipo: ${barcode.rawDecodedBytes.runtimeType}');
+
+    final decoded = barcode.rawDecodedBytes;
+
+    if (decoded is DecodedBarcodeBytes) {
+      debugPrint(
+        'CBOR recuperado correctamente? '
+            '${listEquals(decoded.bytes, expected)}',
+      );
+    }
     // 2. Ignora barcodes sem valor legível
     if (valor == null || valor.trim().isEmpty) return;
 

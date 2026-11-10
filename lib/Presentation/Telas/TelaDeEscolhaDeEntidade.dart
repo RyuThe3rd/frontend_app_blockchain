@@ -23,6 +23,10 @@ class TelaDeEscolhaDeEntidadeState extends State<TelaDeEscolhaDeEntidade> {
       });
     });
     context.read<BancoProvider>().bancoRepo.atualizarInternamenteListaDeBancos();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<BancoProvider>().atulizarListaDeBancos();
+    });
+
   }
 
   @override
