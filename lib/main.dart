@@ -4,7 +4,9 @@ import 'package:app_pfc_blockchain/Presentation/Telas/TelaDeCapturaDoQrCode.dart
 import 'package:app_pfc_blockchain/Presentation/Telas/TelaDeEscolhaDeEntidade.dart';
 import 'package:app_pfc_blockchain/Presentation/Telas/TelaDeResultados.dart';
 import 'package:app_pfc_blockchain/Presentation/Telas/TelaInicial.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'Data/repos/BancoRepo.dart';
 import 'Data/repos/DocumentoRepo.dart';
@@ -15,6 +17,12 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final bancoRepo = BancoRepo();
   final documentoRepo = DocumentoRepo();
+
+  if (kIsWeb) {
+    MobileScannerPlatform.instance.setWebBarcodeReader(
+      WebBarcodeReader.zxingWasm,
+    );
+  }
 
   bancoRepo.atualizarInternamenteListaDeBancos();
 
